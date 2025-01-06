@@ -41,12 +41,13 @@
 ./audible-script/
 ├── src/
 │   ├── components/
-│   │   ├── Navbar.jsx
-│   │   ├── Footer.jsx
-│   │   ├── Home.jsx
-│   │   ├── TTS.jsx
-│   │   ├── STT.jsx
-│   ├── App.jsx
+│   │   ├── Navbar.js
+│   │   ├── Footer.js
+│   ├── pages/
+│   │   ├── Home.js
+│   │   ├── TextToSpeech.js
+│   │   ├── SpeechToText.js
+│   ├── App.js
 │   ├── index.css
 │   ├── index.js
 ```
@@ -60,7 +61,7 @@
 ### Steps
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/audible-script.git
+   git clone https://github.com/ojasbhosale/AudibleScript_Text-Speech_Conversion.git
    cd audible-script
    ```
 2. Install dependencies:
