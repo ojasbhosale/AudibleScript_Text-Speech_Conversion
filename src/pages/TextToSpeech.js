@@ -1,9 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Volume2, Pause, FileText, Download,
-  X, Check, Settings, Loader2
-} from 'lucide-react';
+import { Volume2, Pause, FileText, Download, X, Check, Settings, Loader2 } from 'lucide-react';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const SUPPORTED_FILE_TYPES = new Set(['.txt', '.doc', '.docx']);
@@ -35,21 +32,21 @@ export default function TextToSpeech() {
   const audioContext = useRef(null);
   const dropdownRef = useRef(null);
 
-  useEffect(() => {
-    initializeVoices();
-    initializeAudioContext();
-    document.addEventListener('click', handleClickOutside);
-    return () => {
-      cleanup();
-      document.removeEventListener('click', handleClickOutside);
-    };
+  const handleError = useCallback((message) => {
+    setState(prev => ({ 
+      ...prev, 
+      error: message,
+      isLoading: false 
+    }));
   }, []);
 
-  useEffect(() => {
-    textRef.current = state.text;
-  }, [state.text]);
+  const handleClickOutside = useCallback((event) => {
+    if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+      setState(prev => ({ ...prev, showDropdown: false }));
+    }
+  }, []);
 
-  const initializeVoices = () => {
+  const initializeVoices = useCallback(() => {
     const loadVoices = () => {
       const availableVoices = synth.current.getVoices();
       if (availableVoices.length) {
@@ -63,43 +60,78 @@ export default function TextToSpeech() {
 
     loadVoices();
     synth.current.onvoiceschanged = loadVoices;
-  };
+  }, []);
 
-  const initializeAudioContext = () => {
-    try {
-      audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
-    } catch (error) {
-      handleError('Audio context initialization failed');
-    }
-  };
+  // Effect for initialization and cleanup
+  useEffect(() => {
+    // Store ref values that might change
+    const currentSynth = synth.current;
 
-  const cleanup = () => {
-    if (synth.current.speaking) {
-      synth.current.cancel();
-    }
-    if (audioContext.current?.state !== 'closed') {
-      audioContext.current?.close();
-    }
-    if (state.audioUrl) {
-      URL.revokeObjectURL(state.audioUrl);
-    }
-  };
+    const initializeAudioContext = () => {
+      try {
+        // Only initialize if not already initialized
+        if (!audioContext.current || audioContext.current.state === 'closed') {
+          audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+        }
+      } catch (error) {
+        handleError('Audio context initialization failed');
+      }
+    };
 
-  const handleError = (message) => {
-    setState(prev => ({ 
-      ...prev, 
-      error: message,
-      isLoading: false 
-    }));
-  };
+    initializeVoices();
+    initializeAudioContext();
+    document.addEventListener('click', handleClickOutside);
+    
+    // Cleanup function using stored ref values
+    return () => {
+      if (currentSynth?.speaking) {
+        currentSynth.cancel();
+      }
+      
+      // Safely handle audioContext cleanup
+      const currentAudioContext = audioContext.current;
+      if (currentAudioContext && currentAudioContext.state !== 'closed') {
+        try {
+          currentAudioContext.close().catch(() => {
+            // Silently handle any errors during close
+          });
+        } catch (error) {
+          // Ignore any errors during cleanup
+        }
+      }
 
-  const handleClickOutside = (event) => {
-    if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-      setState(prev => ({ ...prev, showDropdown: false }));
+      if (state.audioUrl) {
+        URL.revokeObjectURL(state.audioUrl);
+      }
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [handleClickOutside, initializeVoices, handleError, state.audioUrl]);
+
+  // Effect for text ref update
+  useEffect(() => {
+    textRef.current = state.text;
+  }, [state.text]);
+
+  const validateFile = useCallback((file) => {
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error(`File size exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit`);
     }
-  };
+    const fileExtension = `.${file.name.split('.').pop().toLowerCase()}`;
+    if (!SUPPORTED_FILE_TYPES.has(fileExtension)) {
+      throw new Error(`Unsupported file type. Supported: ${[...SUPPORTED_FILE_TYPES].join(', ')}`);
+    }
+  }, []);
 
-  const handleFileUpload = async (e) => {
+  const readFileContent = useCallback((file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(file);
+    });
+  }, []);
+
+  const handleFileUpload = useCallback(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -118,73 +150,18 @@ export default function TextToSpeech() {
     } catch (error) {
       handleError(error.message);
     }
-  };
+  }, [validateFile, readFileContent, handleError]);
 
-  const validateFile = (file) => {
-    if (file.size > MAX_FILE_SIZE) {
-      throw new Error(`File size exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit`);
-    }
-    const fileExtension = `.${file.name.split('.').pop().toLowerCase()}`;
-    if (!SUPPORTED_FILE_TYPES.has(fileExtension)) {
-      throw new Error(`Unsupported file type. Supported: ${[...SUPPORTED_FILE_TYPES].join(', ')}`);
-    }
-  };
-
-  const readFileContent = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsText(file);
-    });
-  };
-
-  const handleSpeak = async () => {
-    try {
-      if (!textRef.current.trim()) {
-        throw new Error('Please enter text to convert to speech');
+  const createDownloadableAudio = useCallback(async () => {
+    // Only proceed if audioContext is available and not closed
+    if (!audioContext.current || audioContext.current.state === 'closed') {
+      try {
+        audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (error) {
+        handleError('Failed to initialize audio context');
+        return;
       }
-
-      if (state.isPlaying) {
-        synth.current.pause();
-      } else {
-        if (synth.current.paused) {
-          synth.current.resume();
-        } else {
-          await startSpeech();
-        }
-      }
-      setState(prev => ({ ...prev, isPlaying: !prev.isPlaying }));
-    } catch (error) {
-      handleError(error.message);
     }
-  };
-
-  const startSpeech = () => {
-    return new Promise((resolve, reject) => {
-      if (synth.current.speaking) synth.current.cancel();
-
-      utterance.current = new SpeechSynthesisUtterance(textRef.current);
-      utterance.current.voice = state.selectedVoice;
-      utterance.current.rate = state.speechRate;
-      utterance.current.pitch = state.pitch;
-
-      utterance.current.onend = () => {
-        setState(prev => ({ ...prev, isPlaying: false }));
-        createDownloadableAudio().then(resolve);
-      };
-
-      utterance.current.onerror = (event) => {
-        reject(new Error('Speech synthesis failed: ' + event.error));
-      };
-
-      synth.current.speak(utterance.current);
-      resolve();
-    });
-  };
-
-  const createDownloadableAudio = async () => {
-    if (!audioContext.current) return;
     
     try {
       const oscillator = audioContext.current.createOscillator();
@@ -216,7 +193,51 @@ export default function TextToSpeech() {
     } catch (error) {
       handleError('Failed to create downloadable audio');
     }
-  };
+  }, [handleError]);
+
+  const startSpeech = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      if (synth.current.speaking) synth.current.cancel();
+
+      utterance.current = new SpeechSynthesisUtterance(textRef.current);
+      utterance.current.voice = state.selectedVoice;
+      utterance.current.rate = state.speechRate;
+      utterance.current.pitch = state.pitch;
+
+      utterance.current.onend = () => {
+        setState(prev => ({ ...prev, isPlaying: false }));
+        createDownloadableAudio().then(resolve);
+      };
+
+      utterance.current.onerror = (event) => {
+        reject(new Error('Speech synthesis failed: ' + event.error));
+      };
+
+      synth.current.speak(utterance.current);
+      resolve();
+    });
+  }, [state.selectedVoice, state.speechRate, state.pitch, createDownloadableAudio]);
+
+  const handleSpeak = useCallback(async () => {
+    try {
+      if (!textRef.current.trim()) {
+        throw new Error('Please enter text to convert to speech');
+      }
+
+      if (state.isPlaying) {
+        synth.current.pause();
+      } else {
+        if (synth.current.paused) {
+          synth.current.resume();
+        } else {
+          await startSpeech();
+        }
+      }
+      setState(prev => ({ ...prev, isPlaying: !prev.isPlaying }));
+    } catch (error) {
+      handleError(error.message);
+    }
+  }, [state.isPlaying, startSpeech, handleError]);
 
   return (
     <motion.div 
@@ -407,7 +428,6 @@ export default function TextToSpeech() {
             </div>
           </div>
 
-          {/* Settings Panel */}
           <div className="mt-8 p-4 bg-gray-50 rounded-lg">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-700">Advanced Settings</h2>
@@ -446,7 +466,6 @@ export default function TextToSpeech() {
             </div>
           </div>
 
-          {/* Status Messages */}
           <AnimatePresence>
             {synth.current?.speaking && (
               <motion.div
@@ -465,3 +484,4 @@ export default function TextToSpeech() {
     </motion.div>
   );
 }
+

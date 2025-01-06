@@ -7,7 +7,6 @@ import {
   Speaker,
   ChevronDown,
   Library,
-  Settings,
   LogOut,
   Menu,
   X,
