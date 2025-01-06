@@ -253,7 +253,7 @@ export default function TextToSpeech() {
           variants={FADE_ANIMATION}
         >
           <div className="flex items-center justify-between">
-            <h1 className="text-4xl font-bold text-gray-800">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
               Text to Speech
             </h1>
             <Settings className="w-6 h-6 text-gray-500 hover:text-gray-700 cursor-pointer" />
