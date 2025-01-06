@@ -1,7 +1,7 @@
 # AudibleScript
 
 - AudibleScript is a modern web application that converts text to speech (TTS) and speech to text (STT). It offers a seamless, user-friendly experience with professional styling and animations. The app is built using React.js, TailwindCSS, and modern web APIs.
-- Deployed Link: https://xyz.in
+- Deployed Link: https://audible-script-ojasbhosale.netlify.app/
 
 
 ## Features
